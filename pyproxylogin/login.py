@@ -1,4 +1,4 @@
-#! /usr/bin/python3
+#!/usr/bin/env python
 
 # Author      : J Phani Mahesh
 # Description : A python3 utility to log into IITD proxy servers.
@@ -9,7 +9,7 @@
 # Import some modules to scare newbies, or may be to get things done.
 # bs4 is BeautifulSoup version4, an awesome HTML/XML parser.
 from bs4 import BeautifulSoup as soup #,SoupStrainer as limiter
-import urllib.request, urllib.error, urllib.parse
+import requests
 import sys
 from getpass import getpass,GetPassWarning
 import time
@@ -17,12 +17,17 @@ import time
 import configparser
 # TODO : If modules don't exist, offer to download them.
 
+import inspect, os
+project_root = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
+default_ca_certificate_path = os.path.join(project_root,"CCIITD-CA.crt")
+
+requests.packages.urllib3.disable_warnings() #disable warnings
 # TODO : Argument parsing
 #Define a special confusing useless(?) wrapper function to accept user input.
 def read_input(prompt,retries=3):
     while retries>0:
         try:
-            inp=input(prompt)
+            inp=raw_input(prompt)
             if inp!='':
                 return inp
             else:
@@ -57,29 +62,27 @@ finally:
         # This tries its best not to echo password
         except GetPassWarning:
             print("Free advice: Cover your screen, just in case..")
-
-# Le Proxy handling system
-auto_proxy='http://www.cc.iitd.ernet.in/cgi-bin/proxy.'+proxycat
-proxy=urllib.request.ProxyHandler({'auto_proxy':auto_proxy})
-urlopener=urllib.request.build_opener(proxy)
+    ca_certificate = conf['ca_certificate'] if 'ca_certificate' in conf else default_ca_certificate_path
 
 # Le confirmation messages
 print("Using category",proxycat)
-print("PAC :",auto_proxy)
+# print("PAC :",auto_proxy)
 print("Login address:",address)
 print("Reading login page...")
 
+proxies = {'http':None,'https':None}
 # Loading login page
-try:
-    html = urlopener.open(address).read()
-except Error as e:
-    print("There was an error retrieving the login page.\nExiting....")
-    # TODO: Check network and report accordingly. C'mon, be intelligent!
-    sys.exit(1)
+# try:
+html = requests.get(address, proxies=proxies, verify=ca_certificate).text
+# except Exception as e:
+#     print("There was an error retrieving the login page.\nExiting....")
+#     # TODO: Check network and report accordingly. C'mon, be intelligent!
+#     sys.exit(1)
 print("Login page loaded succesfully")
+# print html
 
 # I'm Hungry. Make me a soup.
-htmlsoup=soup(html)
+htmlsoup=soup(html,"html.parser")
 sessionid=htmlsoup.input['value']
 # TODO : Exception handling. Add some intelligence buddy.
 print("The session id is : "+sessionid)
@@ -89,26 +92,29 @@ login_form={'sessionid':sessionid,'action':'Validate','userid':userid,'pass':pas
 loggedin_form={'sessionid':sessionid,'action':'Refresh'}
 logout_form={'sessionid':sessionid,'action':'logout'}
 
-# Le POST-able binary stream maker
-def yunoencode(form):
-    return urllib.parse.urlencode(form).encode('ascii')
+# # Le POST-able binary stream maker
+# def yunoencode(form):
+#     return urllib.parse.urlencode(form).encode('ascii')
 
-# Le POST-able binary stream data
-login_data=yunoencode(login_form)
-loggedin_data=yunoencode(loggedin_form)
-logout_data=yunoencode(logout_form)
+# # Le POST-able binary stream data
+# login_data=yunoencode(login_form)
+# loggedin_data=yunoencode(loggedin_form)
+# logout_data=yunoencode(logout_form)
 
-response=urlopener.open(urllib.request.Request(address,login_data)).read()
+response=requests.post(address, data=login_form, proxies=proxies, verify=ca_certificate).text
+print(response)
 print("You are now logged in.")
 # TODO : Check if *really* logged in
 
 # Le Functions
 def refresh():
-    response=urlopener.open(urllib.request.Request(address,loggedin_data)).read()
+    response=requests.post(address, data=loggedin_form, proxies=proxies, verify=ca_certificate).text
+    print(response)
     print("Heartbeat sent at "+time.asctime())
 
 def logout():
-    response=urlopener.open(urllib.request.Request(address,logout_data)).read()
+    response=requests.post(address, data=logout_form, proxies=proxies, verify=ca_certificate).text
+    print(response)
     # TODO : Verify if *really* logged out
     print("Logged out succesfully.")
 

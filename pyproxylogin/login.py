@@ -1,14 +1,10 @@
 #!/usr/bin/env python
 
 # Author      : J Phani Mahesh
-# Description : A python3 utility to log into IITD proxy servers.
-# Home        : http://phanimahesh.github.com/iitd-pyproxylogin
-# Blog        : http://phanimahesh.wordpress.com
-# Bugs        : Report bugs to phanimahesh.ee510 [at] ee.iitd.ac.in
+# Description : A python utility to log into IITD proxy servers.
 
-# Import some modules to scare newbies, or may be to get things done.
-# bs4 is BeautifulSoup version4, an awesome HTML/XML parser.
-from bs4 import BeautifulSoup as soup #,SoupStrainer as limiter
+from __future__ import print_function
+
 import requests
 import sys
 from getpass import getpass,GetPassWarning
@@ -16,6 +12,9 @@ import time
 #import argparse
 import configparser
 # TODO : If modules don't exist, offer to download them.
+
+from api import get_sessionid, login, refresh, logout
+from api import SUCCESSFUL_LOGIN, SUCCESSFUL_LOGOUT
 
 import inspect, os
 project_root = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
@@ -70,62 +69,36 @@ finally:
 print("Login address:",address)
 print("Reading login page...")
 
-proxies = {'http':None,'https':None}
-# Loading login page
-# try:
-html = requests.get(address, proxies=proxies, verify=ca_certificate).text
-# except Exception as e:
-#     print("There was an error retrieving the login page.\nExiting....")
-#     # TODO: Check network and report accordingly. C'mon, be intelligent!
-#     sys.exit(1)
-print("Login page loaded succesfully")
-# print html
 
-# I'm Hungry. Make me a soup.
-htmlsoup=soup(html,"html.parser")
-sessionid=htmlsoup.input['value']
+sessionid = get_sessionid(proxyserv)
+print("Login page loaded succesfully")
+
 # TODO : Exception handling. Add some intelligence buddy.
 print("The session id is : "+sessionid)
 
-# Le Forms
-login_form={'sessionid':sessionid,'action':'Validate','userid':userid,'pass':passwd}
-loggedin_form={'sessionid':sessionid,'action':'Refresh'}
-logout_form={'sessionid':sessionid,'action':'logout'}
+def check_login(res):
+    if res['status'] == SUCCESSFUL_LOGIN:
+        print("You are now logged in.")
+    else:
+        print("Login Error.\nres = {res}".format(res=res), file=sys.stderr)
+        sys.exit(1)
 
-# # Le POST-able binary stream maker
-# def yunoencode(form):
-#     return urllib.parse.urlencode(form).encode('ascii')
-
-# # Le POST-able binary stream data
-# login_data=yunoencode(login_form)
-# loggedin_data=yunoencode(loggedin_form)
-# logout_data=yunoencode(logout_form)
-
-response=requests.post(address, data=login_form, proxies=proxies, verify=ca_certificate).text
-print(response)
-print("You are now logged in.")
-# TODO : Check if *really* logged in
-
-# Le Functions
-def refresh():
-    response=requests.post(address, data=loggedin_form, proxies=proxies, verify=ca_certificate).text
-    print(response)
-    print("Heartbeat sent at "+time.asctime())
-
-def logout():
-    response=requests.post(address, data=logout_form, proxies=proxies, verify=ca_certificate).text
-    print(response)
-    # TODO : Verify if *really* logged out
-    print("Logged out succesfully.")
+res = login(proxyserv, userid, passwd, sessionid)
+check_login(res)
 
 # Le Keep-me-logged-in thingy
 try:
     while True:
         time.sleep(240)
-        refresh()
+        res = refresh(proxyserv, sessionid)
+        check_login(res)
 except KeyboardInterrupt as e:
     print("Keyboard Interrupt recieved.")
-    logout()
+    res = logout(proxyserv, sessionid)
+    if res['status'] == SUCCESSFUL_LOGOUT:
+        print("Logged out succesfully.")
+    else:
+        print("Logout Failed.")
     print("""
 Thank you for using pyproxylogin.
 Report any problems encountered to J Phani Mahesh.

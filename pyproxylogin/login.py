@@ -32,11 +32,11 @@ def read_input(prompt,retries=3):
                 return inp
             else:
                 print("\nI demand input!!!\nHow dare you give an empty reply?")
-                i=i-1
+                retries -= 1
                 continue 
         except EOFError:
             print("\nI demand input!!!\nHow dare you throw a EOF at me?")
-            i=i-1
+            retries -= 1
     print("RAGEQUIT!!") # :-(
     sys.exit(255)
 

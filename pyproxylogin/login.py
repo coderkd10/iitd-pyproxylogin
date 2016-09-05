@@ -49,7 +49,7 @@ except KeyError as e:
     config['PROXY']={}
     conf=config['PROXY']
 finally:
-    proxycat=conf['proxycat'] if 'proxycat' in conf else read_input("Enter proxy: http://www.cc.iitd.ernet.in/cgi-bin/proxy.")
+    # proxycat=conf['proxycat'] if 'proxycat' in conf else read_input("Enter proxy: http://www.cc.iitd.ernet.in/cgi-bin/proxy.")
     proxyserv=conf['proxyserv'] if 'proxyserv' in conf else read_input("The proxy server is : 10.10.78.")
     address='https://proxy'+proxyserv+'.iitd.ernet.in/cgi-bin/proxy.cgi'
     userid=conf['userid'] if 'userid' in conf else read_input("Enter your Userid : ")
@@ -65,7 +65,7 @@ finally:
     ca_certificate = conf['ca_certificate'] if 'ca_certificate' in conf else default_ca_certificate_path
 
 # Le confirmation messages
-print("Using category",proxycat)
+# print("Using category",proxycat)
 # print("PAC :",auto_proxy)
 print("Login address:",address)
 print("Reading login page...")

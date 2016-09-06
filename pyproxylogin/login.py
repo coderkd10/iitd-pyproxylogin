@@ -61,7 +61,7 @@ finally:
         # This tries its best not to echo password
         except GetPassWarning:
             print("Free advice: Cover your screen, just in case..")
-    ca_certificate = conf['ca_certificate'] if 'ca_certificate' in conf else default_ca_certificate_path
+    ca_cert = conf['ca_certificate'] if 'ca_certificate' in conf else default_ca_certificate_path
 
 # Le confirmation messages
 # print("Using category",proxycat)
@@ -70,7 +70,7 @@ print("Login address:",address)
 print("Reading login page...")
 
 
-sessionid = get_sessionid(proxyserv)
+sessionid = get_sessionid(proxyserv, ca_cert=ca_cert)
 print("Login page loaded succesfully")
 
 # TODO : Exception handling. Add some intelligence buddy.
@@ -78,32 +78,95 @@ print("The session id is : "+sessionid)
 
 def check_login(res):
     if res['status'] == SUCCESSFUL_LOGIN:
-        print("You are now logged in.")
+        return True
     else:
         print("Login Error.\nres = {res}".format(res=res), file=sys.stderr)
         sys.exit(1)
 
-res = login(proxyserv, userid, passwd, sessionid)
-check_login(res)
+res = login(proxyserv, userid, passwd, sessionid, ca_cert=ca_cert)
+if check_login(res):
+    print("You are now logged in.")
 
-# Le Keep-me-logged-in thingy
-try:
-    while True:
-        time.sleep(240)
-        res = refresh(proxyserv, sessionid)
-        check_login(res)
-except KeyboardInterrupt as e:
-    print("Keyboard Interrupt recieved.")
-    res = logout(proxyserv, sessionid)
+
+import threading
+class PersistentLogin(threading.Thread):
+    def __init__(self, interval=120):
+        threading.Thread.__init__(self)
+        self._finished = threading.Event()
+        self._interval = interval
+    def isRunning(self):
+        return not self._finished.isSet()
+    def terminate(self):
+        self._finished.set()
+    def run(self):
+        while True:
+            if self._finished.isSet():
+                return
+            else:
+                self.task()
+                self._finished.wait(self._interval)
+    def task(self):
+        res = refresh(proxyserv, sessionid, ca_cert=ca_cert)
+        if check_login(res):
+            print("Heartbeat sent at {time}. [OK]".format(time=time.asctime()))
+        else:
+            print("Refreshing failed. Exiting...")
+            self.terminate()
+
+
+# # Le Keep-me-logged-in thingy
+# from threading import Timer
+# def keep_logged_in(interval=5):
+#     res = refresh(proxyserv, sessionid, ca_cert=ca_cert)
+#     if check_login(res):
+#         print("Heartbeat sent at "+time.asctime())
+#     t = Timer(interval,keep_logged_in,(interval,))
+#     # t.daemon = True
+#     t.start()
+
+# import atexit
+
+def logout_on_exit():
+    res = logout(proxyserv, sessionid, ca_cert=ca_cert)
+    print ("Logging out... Response : \n"+ str(res) +"\n\n")
     if res['status'] == SUCCESSFUL_LOGOUT:
         print("Logged out succesfully.")
     else:
         print("Logout Failed.")
-    print("""
-Thank you for using pyproxylogin.
-Report any problems encountered to J Phani Mahesh.
-He can be reached at phanimahesh.ee510 [at] ee.iitd.ac.in
-Have a nice day!
-""")
-    sys.exit(0)
-  # It is customary to exit with zero status on success
+
+
+if __name__ == '__main__':
+    pl = PersistentLogin(120)
+    pl.start()
+    
+    def gracefully_exit():
+        pl.terminate()
+        logout_on_exit()
+        sys.exit(0)
+
+    def signal_handler(signal, frame):
+        print("\nKeyboardInterrupt Handler called...")
+        gracefully_exit()
+
+    #import signal
+    # signal.signal(signal.SIGINT, signal_handler)
+    # ^ Replaced with try & Catch
+
+    while pl.isRunning():
+        try:
+            ins = raw_input()
+            if ins == "EXIT":
+                print("Exit Command Received. Exiting...")
+                gracefully_exit()
+        except KeyboardInterrupt:
+            print("\nKeyboardInterrupt Handler called. Exiting...")
+            gracefully_exit()
+
+
+
+    # try:
+    #     keep_logged_in(120)
+    # except KeyboardInterrupt:
+    #     print("caught interrupt")
+    #     logout_on_exit()
+    # print("done!")

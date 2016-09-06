@@ -21,7 +21,7 @@ INVALID_CREDENTIALS = 3
 #LOGOUT API response codes
 SUCCESSFUL_LOGOUT = 0
 
-def get_proxy_server_address(proxy_server_code):
+def get_proxy_server_address(proxy_server_code, ca_cert=default_ca_certificate_path):
 	return "https://proxy{code}.iitd.ernet.in/cgi-bin/proxy.cgi".format(code=proxy_server_code)
 
 def get_sessionid(proxy_server_code, ca_cert=default_ca_certificate_path):

@@ -109,6 +109,7 @@ class PersistentLogin(threading.Thread):
         res = refresh(proxyserv, sessionid, ca_cert=ca_cert)
         if check_login(res):
             print("Heartbeat sent at {time}. [OK]".format(time=time.asctime()))
+            sys.stdout.write("\033[F")
         else:
             print("Refreshing failed. Exiting...")
             self.terminate()
@@ -136,6 +137,7 @@ def logout_on_exit():
 
 
 if __name__ == '__main__':
+
     pl = PersistentLogin(120)
     pl.start()
     
@@ -158,8 +160,8 @@ if __name__ == '__main__':
             if ins == "EXIT":
                 print("Exit Command Received. Exiting...")
                 gracefully_exit()
-        except KeyboardInterrupt:
-            print("\nKeyboardInterrupt Handler called. Exiting...")
+        except (KeyboardInterrupt, EOFError):
+            print("\nInterrupt received. Exiting...")
             gracefully_exit()
 
 

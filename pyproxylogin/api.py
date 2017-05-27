@@ -13,6 +13,7 @@ SESSION_EXPIRED     = "SESSION_EXPIRED"
 INVALID_CREDENTIALS = "INVALID_CREDENTIALS" # userid / password incorrect
 SQUISHED            = "SQUISHED"  # proxy quota exceeded
 ALREADY_LOGGED_IN   = "ALREADY_LOGGED_IN" # someone already logged in from same IP
+NOT_ALLOWED         = "NOT_ALLOWED" # when btech(22) tries to use 62 server instead
 
 # Internal variables
 _NO_PROXY = {'http': None, 'https': None} # Avoid proxy when requesting proxy server
@@ -132,6 +133,8 @@ def parse_login_response(response_text):
             return (False, ALREADY_LOGGED_IN)
         elif "You are squished" in response_text:
             return (False, SQUISHED)
+        elif "not allowed to use this proxy server" in response_text:
+            return (False, NOT_ALLOWED)
         else:
             raise InvalidServerResponse("Unknown response from login API",
                     debug_info={"response_text": response_text})

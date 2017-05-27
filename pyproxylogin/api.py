@@ -1,81 +1,171 @@
 import requests
-import inspect
-import os
 from bs4 import BeautifulSoup
 
-project_root = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
-default_ca_certificate_path = os.path.join(project_root,"CCIITD-CA.crt") #get default path for IITD-CA-certificate
+'''
+API response codes
+'''
+# Success codes
+SUCCESSFUL_LOGIN    = "SUCCESSFUL_LOGIN"
+SUCCESSFUL_LOGOUT   = "SUCCESSFUL_LOGOUT"
+# Error codes
+SESSION_EXPIRED     = "SESSION_EXPIRED"
+INVALID_CREDENTIALS = "INVALID_CREDENTIALS" # userid / password incorrect
+SQUISHED            = "SQUISHED"  # proxy quota exceeded
+ALREADY_LOGGED_IN   = "ALREADY_LOGGED_IN" # someone already logged in from same IP
 
-NO_PROXY = {'http': None, 'https': None} #Avoid proxy when requesting proxy server
+# Internal variables
+_NO_PROXY = {'http': None, 'https': None} #Avoid proxy when requesting proxy server
+PROXY_ADDRESS_FORMAT = "https://proxy{proxy_code}.iitd.ernet.in/cgi-bin/proxy.cgi" # Proxy login server adress format
 
-#GENERAL ERRORS
-SESSION_EXPIRED = -1
-UNKNOWN_ERROR = -2
 
-#LOGIN / REFRESH API response codes
-SUCCESSFUL_LOGIN = 0
-ALREADY_LOGGED_IN = 1
-PROXY_SQUISHED = 2
-INVALID_CREDENTIALS = 3
+class InvalidServerResponse(Exception):
+    '''
+    Exception raised when the server responds in a way other than expected
+    '''
 
-#LOGOUT API response codes
-SUCCESSFUL_LOGOUT = 0
+def proxy_server_address(proxy_code):
+    '''
+    Get proxy login server address.
+    E.g. https://proxy22.iitd.ac.in/cgi-bin/proxy.cgi
+    '''
+    return PROXY_ADDRESS_FORMAT.format(
+        proxy_code=proxy_code)
 
-def get_proxy_server_address(proxy_server_code, ca_cert=default_ca_certificate_path):
-	return "https://proxy{code}.iitd.ernet.in/cgi-bin/proxy.cgi".format(code=proxy_server_code)
+def _build_requests_options(kwargs):
+    '''
+    Internal function to generate options to be passed to requests
+    '''
+    requests_options = {} # options to pass to requests
+    requests_options["proxies"] = _NO_PROXY
+    if "cert" in kwargs:
+        requests_options["verify"] = kwargs["cert"]
+    return requests_options
 
-def get_sessionid(proxy_server_code, ca_cert=default_ca_certificate_path):
-	proxy_page_html = requests.get(get_proxy_server_address(proxy_server_code), 
-		proxies=NO_PROXY, verify=ca_cert).text
-	soup = BeautifulSoup(proxy_page_html, "html.parser")
-	return soup.find('input',{'name':'sessionid'})['value']
+## TODO get proxy refersh rate
 
-def parse_login_response(response):
-	if "You are logged in successfully" in response:
-		return SUCCESSFUL_LOGIN
-	elif "Session Expired" in response:
-		return SESSION_EXPIRED
-	elif "Error" in response:
-		if "already logged in" in response:
-			return ALREADY_LOGGED_IN
-		elif "You are squished" in response:
-			return PROXY_SQUISHED
-		else:
-			return UNKNOWN_ERROR
-	elif "Either your userid and/or password does'not match" in response:
-		return INVALID_CREDENTIALS
-	else:
-		return UNKNOWN_ERROR
+def get_sessionid(proxy_code, **kwargs):
+    '''
+    Get session id for logging into proxy server
+    '''
+    url = proxy_server_address(proxy_code)
+    requests_options = _build_requests_options(kwargs)
+    response = requests.get(
+                url,
+                **requests_options)
+    # check if we get a 200 response code
+    if response.status_codee != 200:
+        raise InvalidServerResponse("Received a status code {status_code} from {url}".
+                format(status_code=response.status_code, url=url))
+    response_html = response.text
+    try:
+        soup = BeautifulSoup(response_html, "html.parser")
+        return soup.find('input',{'name':'sessionid'})['value']
+    except Exception as e:
+        raise InvalidServerResponse("Cannot find sessionid in server response")
 
-def login(proxy_server_code, userid, password, sessionid=None, ca_cert=default_ca_certificate_path):
-	if sessionid is None:
-		sessionid = get_sessionid(proxy_server_code)
-	form_data = {'sessionid':sessionid,'action':'Validate','userid':userid,'pass':password}
-	response = requests.post(get_proxy_server_address(proxy_server_code),
-		data=form_data, proxies=NO_PROXY, verify=ca_cert).text
-	status = parse_login_response(response)
-	return {'sessionid':sessionid, 'status':status, 'response':response}
+def parse_login_response(response_text):
+    '''
+    Parse response text from login/refresh API
+    Returns (success, code)
+    '''
+    if "You are logged in successfully" in response_text:
+        return (True, SUCCESSFUL_LOGIN)
+    elif "Session Expired" in response_text:
+        return (False, SESSION_EXPIRED)
+    elif "Error" in response_text:
+        if "already logged in" in response_text:
+            return (False, ALREADY_LOGGED_IN)
+        elif "You are squished" in response_text:
+            return (False, SQUISHED)
+        else:
+            raise InvalidServerResponse("Unknown response from login API")
+    elif "Either your userid and/or password does'not match" in response_text:
+        return (False, INVALID_CREDENTIALS)
+    else:
+        raise InvalidServerResponse("Unknown response from login API")
 
-def refresh(proxy_server_code, sessionid, ca_cert=default_ca_certificate_path):
-	form_data = {'sessionid':sessionid,'action':'Refresh'}
-	response = requests.post(get_proxy_server_address(proxy_server_code),
-		data=form_data, proxies=NO_PROXY, verify=ca_cert).text
-	status = parse_login_response(response)
-	return {'sessionid':sessionid, 'status':status, 'response':response}
+def parse_logout_response(response_text):
+    '''
+    Parse response from logout API
+    Returns (success, code)
+    '''
+    if "you have logged out from the IIT Delhi Proxy Service" in response:
+        return (True, SUCCESSFUL_LOGOUT)
+    elif "Session Expired" in response:
+        return (False, SESSION_EXPIRED)
+    else:
+        raise InvalidServerResponse("Unknown response from login API")
 
-def parse_logout_response(response):
-	if "you have logged out from the IIT Delhi Proxy Service" in response:
-		return SUCCESSFUL_LOGOUT
-	elif "Session Expired" in response:
-		return SESSION_EXPIRED
-	else:
-		return UNKNOWN_ERROR
+def login(proxy_code, userid, password, **kwargs):
+    '''
+    Perform Login
+    '''
+    # Get session if presesent in kwargs, otherwise get one from server
+    if "sessionid" in kwargs:
+        sessionid = kwargs.pop("sessionid") # remove session id key if present
+    else:
+        sessionid = get_sessionid(proxy_code, **kwargs)
+    requests_options = _build_requests_options(kwargs)
+    form_data = {
+                    'sessionid':kwargs["sessionid"],
+                    'action':'Validate',
+                    'userid':userid,
+                    'pass':password
+                }
+    url = proxy_server_address(proxy_code)
+    response = requests.post(
+                url,
+                data=form_data,
+                **requests_options)
+    if response.status_codee != 200:
+        raise InvalidServerResponse("Received a status code {status_code} from {url}".
+                format(status_code=response.status_code, url=url))
+    success, code = parse_login_response(response.text)
+    return {
+        'success': success,
+        'response_code': code,
+        'sessionid': sessionid,
+        'response': response
+    }
 
-def logout(proxy_server_code, sessionid=None, ca_cert=default_ca_certificate_path):
-	if sessionid is None:
-		sessionid = get_sessionid(proxy_server_code)
-	form_data={'sessionid':sessionid,'action':'logout'}
-	response = requests.post(get_proxy_server_address(proxy_server_code),
-		data=form_data, proxies=NO_PROXY, verify=ca_cert).text
-	status = parse_logout_response(response)
-	return {'sessionid':sessionid, 'status':status, 'response':response}
+def refresh(proxy_code, sessionid, **kwargs):
+    '''
+    Refresh login, i.e, send "heartbeat"
+    '''
+    requests_options = _build_requests_options(kwargs)
+    form_data = {
+                    'sessionid':sessionid,
+                    'action':'Refresh'
+                }
+    url = proxy_server_address(proxy_code)
+    response = requests.post(
+                url,
+                data=form_data,
+                **requests_options)
+    if response.status_codee != 200:
+        raise InvalidServerResponse("Received a status code {status_code} from {url}".
+                format(status_code=response.status_code, url=url))
+    success, code = parse_login_response(response.text)
+    return {
+        'success': success,
+        'response_code': code,
+        'response':response
+    }
+
+def logout(proxy_code, sessionid, **kwargs):
+    requests_options = _build_requests_options(kwargs)
+    form_data = {
+                    'sessionid': sessionid,
+                    'action':'logout'
+                }
+    url = proxy_server_address(proxy_code)
+    response = requests.post(
+                url,
+                data=form_data,
+                **requests_options)
+    success, code = parse_logout_response(response.text)
+    return {
+        'success': success,
+        'requests_code': code,
+        'response': response
+    }

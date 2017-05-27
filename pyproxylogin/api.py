@@ -1,5 +1,6 @@
 import requests
 from bs4 import BeautifulSoup
+import re
 
 '''
 API response codes
@@ -41,8 +42,6 @@ def _build_requests_options(kwargs):
         requests_options["verify"] = kwargs["cert"]
     return requests_options
 
-## TODO get proxy refersh rate
-
 def get_sessionid(proxy_code, **kwargs):
     '''
     Get session id for logging into proxy server
@@ -62,6 +61,24 @@ def get_sessionid(proxy_code, **kwargs):
         return soup.find('input',{'name':'sessionid'})['value']
     except Exception as e:
         raise InvalidServerResponse("Cannot find sessionid in server response")
+
+def get_refresh_interval(login_response_text):
+    '''
+    Get the time-interval between refresh API calls, i.e., the heartbeat period.
+    Input parameter : Login API response text
+    Return : Refresh time interval (in milli-seconds) [int]
+    '''
+    # Want to find the line : setTimeout('MySubmit1()', 120000);
+    interval_regex = re.compile("setTimeout\(.*,\s*(\d*)\)")
+    match = interval_regex.search(login_response_text)
+    if (match is None) or (len(match.groups()) != 1):
+        raise InvalidServerResponse("Cannot find refresh interval in login response")
+    else:
+        try:
+            interval = int(match.groups()[0])
+            return interval
+        except:
+            raise InvalidServerResponse("Cannot find refresh interval in login response")
 
 def parse_login_response(response_text):
     '''
@@ -89,9 +106,9 @@ def parse_logout_response(response_text):
     Parse response from logout API
     Returns (success, code)
     '''
-    if "you have logged out from the IIT Delhi Proxy Service" in response:
+    if "you have logged out from the IIT Delhi Proxy Service" in response_text:
         return (True, SUCCESSFUL_LOGOUT)
-    elif "Session Expired" in response:
+    elif "Session Expired" in response_text:
         return (False, SESSION_EXPIRED)
     else:
         raise InvalidServerResponse("Unknown response from login API")
@@ -107,10 +124,10 @@ def login(proxy_code, userid, password, **kwargs):
         sessionid = get_sessionid(proxy_code, **kwargs)
     requests_options = _build_requests_options(kwargs)
     form_data = {
-                    'sessionid':kwargs["sessionid"],
-                    'action':'Validate',
-                    'userid':userid,
-                    'pass':password
+                    'sessionid': sessionid,
+                    'action': 'Validate',
+                    'userid': userid,
+                    'pass': password
                 }
     url = proxy_server_address(proxy_code)
     response = requests.post(
@@ -121,12 +138,17 @@ def login(proxy_code, userid, password, **kwargs):
         raise InvalidServerResponse("Received a status code {status_code} from {url}".
                 format(status_code=response.status_code, url=url))
     success, code = parse_login_response(response.text)
-    return {
+    return_dict = {
         'success': success,
         'response_code': code,
         'sessionid': sessionid,
         'response': response
     }
+    if success:
+        # Get refresh API period
+        refresh_interval = get_refresh_interval(response.text)
+        return_dict["refresh_interval"] = refresh_interval
+    return return_dict
 
 def refresh(proxy_code, sessionid, **kwargs):
     '''

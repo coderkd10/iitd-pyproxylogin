@@ -94,7 +94,7 @@ def get_refresh_interval(login_response_text):
     '''
     Get the time-interval between refresh API calls, i.e., the heartbeat period.
     Input parameter : Login API response text
-    Return : Refresh time interval (in milli-seconds) [int]
+    Return : Refresh time interval (in seconds) [float]
     '''
     # Want to find the line : setTimeout('MySubmit1()', 120000);
     interval_regex = re.compile("setTimeout\(.*,\s*(\d*)\)")
@@ -108,8 +108,8 @@ def get_refresh_interval(login_response_text):
             })
     else:
         try:
-            interval = int(match.groups()[0])
-            return interval
+            interval_millis = float(match.groups()[0])
+            return interval_millis/1000
         except:
             raise InvalidServerResponse(
                 "Cannot find refresh interval in login response",

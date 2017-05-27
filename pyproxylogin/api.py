@@ -53,7 +53,7 @@ def get_sessionid(proxy_code, **kwargs):
                 url,
                 **requests_options)
     # check if we get a 200 response code
-    if response.status_codee != 200:
+    if response.status_code != 200:
         raise InvalidServerResponse("Received a status code {status_code} from {url}".
                 format(status_code=response.status_code, url=url))
     response_html = response.text
@@ -117,7 +117,7 @@ def login(proxy_code, userid, password, **kwargs):
                 url,
                 data=form_data,
                 **requests_options)
-    if response.status_codee != 200:
+    if response.status_code != 200:
         raise InvalidServerResponse("Received a status code {status_code} from {url}".
                 format(status_code=response.status_code, url=url))
     success, code = parse_login_response(response.text)
@@ -142,7 +142,7 @@ def refresh(proxy_code, sessionid, **kwargs):
                 url,
                 data=form_data,
                 **requests_options)
-    if response.status_codee != 200:
+    if response.status_code != 200:
         raise InvalidServerResponse("Received a status code {status_code} from {url}".
                 format(status_code=response.status_code, url=url))
     success, code = parse_login_response(response.text)
@@ -163,6 +163,9 @@ def logout(proxy_code, sessionid, **kwargs):
                 url,
                 data=form_data,
                 **requests_options)
+    if response.status_code != 200:
+        raise InvalidServerResponse("Received a status code {status_code} from {url}".
+                format(status_code=response.status_code, url=url))
     success, code = parse_logout_response(response.text)
     return {
         'success': success,

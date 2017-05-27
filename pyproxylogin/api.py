@@ -15,14 +15,20 @@ SQUISHED            = "SQUISHED"  # proxy quota exceeded
 ALREADY_LOGGED_IN   = "ALREADY_LOGGED_IN" # someone already logged in from same IP
 
 # Internal variables
-_NO_PROXY = {'http': None, 'https': None} #Avoid proxy when requesting proxy server
+_NO_PROXY = {'http': None, 'https': None} # Avoid proxy when requesting proxy server
 PROXY_ADDRESS_FORMAT = "https://proxy{proxy_code}.iitd.ernet.in/cgi-bin/proxy.cgi" # Proxy login server adress format
 
 
 class InvalidServerResponse(Exception):
     '''
-    Exception raised when the server responds in a way other than expected
+    Exception raised when the server responds in a way other than expected.
+    Contains debug_info which contains useful debugging information
     '''
+    def __init__(self, *args, **kwargs):
+        debug_info = kwargs.pop("debug_info", {})
+        self.debug_info = debug_info
+        # Call base Exception constructor
+        super(InvalidServerResponse, self).__init__(*args, **kwargs)
 
 def proxy_server_address(proxy_code):
     '''
@@ -42,6 +48,23 @@ def _build_requests_options(kwargs):
         requests_options["verify"] = kwargs["cert"]
     return requests_options
 
+def _raise_unexpected_status_code_ex(proxy_code, requests_options, response):
+    '''
+    Internal function to raise exception when server responds with an unexpected status code
+    '''
+    url = proxy_server_address(proxy_code)
+    status_code = response.status_code
+    raise InvalidServerResponse(
+            "Received a status code {status_code} from {url}".
+                format(status_code=status_code, url=url),
+            debug_info = {
+                "proxy_code": proxy_code,
+                "url": url,
+                "requests_options": requests_options,
+                "status_code": response.status_code,
+                "response": response
+            })
+
 def get_sessionid(proxy_code, **kwargs):
     '''
     Get session id for logging into proxy server
@@ -53,14 +76,18 @@ def get_sessionid(proxy_code, **kwargs):
                 **requests_options)
     # check if we get a 200 response code
     if response.status_code != 200:
-        raise InvalidServerResponse("Received a status code {status_code} from {url}".
-                format(status_code=response.status_code, url=url))
+        _raise_unexpected_status_code_ex(proxy_code, requests_options, response)
     response_html = response.text
     try:
         soup = BeautifulSoup(response_html, "html.parser")
         return soup.find('input',{'name':'sessionid'})['value']
     except Exception as e:
-        raise InvalidServerResponse("Cannot find sessionid in server response")
+        raise InvalidServerResponse(
+                "Cannot find sessionid in server response",
+                debug_info = {
+                    "proxy_code": proxy_code,
+                    "response_html": response_html
+                })
 
 def get_refresh_interval(login_response_text):
     '''
@@ -72,13 +99,24 @@ def get_refresh_interval(login_response_text):
     interval_regex = re.compile("setTimeout\(.*,\s*(\d*)\)")
     match = interval_regex.search(login_response_text)
     if (match is None) or (len(match.groups()) != 1):
-        raise InvalidServerResponse("Cannot find refresh interval in login response")
+        raise InvalidServerResponse(
+            "Cannot find refresh interval in login response",
+            debug_info = {
+                "login_response_text": login_response_text,
+                "match": match
+            })
     else:
         try:
             interval = int(match.groups()[0])
             return interval
         except:
-            raise InvalidServerResponse("Cannot find refresh interval in login response")
+            raise InvalidServerResponse(
+                "Cannot find refresh interval in login response",
+                debug_info = {
+                    "login_response_text": login_response_text,
+                    "match": match,
+                    "interval_string": match.groups()[0]
+                })
 
 def parse_login_response(response_text):
     '''
@@ -95,11 +133,13 @@ def parse_login_response(response_text):
         elif "You are squished" in response_text:
             return (False, SQUISHED)
         else:
-            raise InvalidServerResponse("Unknown response from login API")
+            raise InvalidServerResponse("Unknown response from login API",
+                    debug_info={"response_text": response_text})
     elif "Either your userid and/or password does'not match" in response_text:
         return (False, INVALID_CREDENTIALS)
     else:
-        raise InvalidServerResponse("Unknown response from login API")
+        raise InvalidServerResponse("Unknown response from login API",
+                debug_info={"response_text": response_text})
 
 def parse_logout_response(response_text):
     '''
@@ -111,7 +151,8 @@ def parse_logout_response(response_text):
     elif "Session Expired" in response_text:
         return (False, SESSION_EXPIRED)
     else:
-        raise InvalidServerResponse("Unknown response from login API")
+        raise InvalidServerResponse("Unknown response from login API",
+                debug_info={"response_text": response_text})
 
 def login(proxy_code, userid, password, **kwargs):
     '''
@@ -135,8 +176,7 @@ def login(proxy_code, userid, password, **kwargs):
                 data=form_data,
                 **requests_options)
     if response.status_code != 200:
-        raise InvalidServerResponse("Received a status code {status_code} from {url}".
-                format(status_code=response.status_code, url=url))
+        _raise_unexpected_status_code_ex(proxy_code, requests_options, response)
     success, code = parse_login_response(response.text)
     return_dict = {
         'success': success,
@@ -165,8 +205,7 @@ def refresh(proxy_code, sessionid, **kwargs):
                 data=form_data,
                 **requests_options)
     if response.status_code != 200:
-        raise InvalidServerResponse("Received a status code {status_code} from {url}".
-                format(status_code=response.status_code, url=url))
+        _raise_unexpected_status_code_ex(proxy_code, requests_options, response)
     success, code = parse_login_response(response.text)
     return {
         'success': success,
@@ -186,8 +225,7 @@ def logout(proxy_code, sessionid, **kwargs):
                 data=form_data,
                 **requests_options)
     if response.status_code != 200:
-        raise InvalidServerResponse("Received a status code {status_code} from {url}".
-                format(status_code=response.status_code, url=url))
+        _raise_unexpected_status_code_ex(proxy_code, requests_options, response)
     success, code = parse_logout_response(response.text)
     return {
         'success': success,

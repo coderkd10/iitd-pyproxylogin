@@ -38,30 +38,31 @@ class PersistentLogin:
                 refresh_interval = login_response["refresh_interval"]
 
                 while not self._finished.isSet():
-                    refresh_response = refresh(self.proxy_code, sessionid)
-                    if not refresh_response["success"]:
-                        print("\n[{level}] Refresh failed : {code}".format(
-                            level = "Warn" if refresh_response["response_code"] == SESSION_EXPIRED else "Error",
-                            code = refresh_response["response_code"]))
-                        if refresh_response["response_code"] == SESSION_EXPIRED: 
-                            print("Retrying Login...")
-                            break
+                    try:
+                        # Try to refresh. If failed due to connection error, try again.
+                        refresh_response = refresh(self.proxy_code, sessionid)
+                        if not refresh_response["success"]:
+                            print("\n[{level}] Refresh failed : {code}".format(
+                                level = "Warn" if refresh_response["response_code"] == SESSION_EXPIRED else "Error",
+                                code = refresh_response["response_code"]))
+                            if refresh_response["response_code"] == SESSION_EXPIRED:
+                                print("Retrying Login...")
+                                break
+                            else:
+                                print("Quitting.")
+                                return
+                        else:
+                            print("Heartbeat sent at {time}. [OK]".format(time=time.asctime()))
+                            sys.stdout.write("\033[F")
+                            self._finished.wait(refresh_interval)
+                    except RequestException as e:
+                        print("[Warn] Request Exception ocurred : " + type(e).__name__)
+                        if self.retry:
+                            print("Retrying in {retry_interval} s...".format(retry_interval=self.retry_interval))
+                            self._finished.wait(self.retry_interval)
                         else:
                             print("Quitting.")
                             return
-                    else:
-                        print("Heartbeat sent at {time}. [OK]".format(time=time.asctime()))
-                        sys.stdout.write("\033[F")
-                        self._finished.wait(refresh_interval)
-
-            except RequestException as e:
-                print("[Warn] Request Exception ocurred : " + type(e).__name__)
-                if self.retry:
-                    print("Retrying in {retry_interval} s...".format(retry_interval=self.retry_interval))
-                    self._finished.wait(self.retry_interval)
-                else:
-                    print("Quitting.")
-                    return
             except InvalidServerResponse as e:
                 print("[Error] Received Excepted Response from server : {e}. (maybe API has changed)".format(e=str(e)))
                 print("Quitting.")

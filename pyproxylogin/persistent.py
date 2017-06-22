@@ -57,7 +57,7 @@ class PersistentLogin:
             except RequestException as e:
                 print("[Warn] Request Exception ocurred : " + type(e).__name__)
                 if self.retry:
-                    print("Retrying in {retry_interval} s...".format(self.retry_interval))
+                    print("Retrying in {retry_interval} s...".format(retry_interval=self.retry_interval))
                     self._finished.wait(self.retry_interval)
                 else:
                     print("Quitting.")
